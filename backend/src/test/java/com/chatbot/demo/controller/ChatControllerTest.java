@@ -5,6 +5,7 @@ import com.chatbot.demo.model.ChatMessage;
 import com.chatbot.demo.model.User;
 import com.chatbot.demo.model.WeatherContext;
 import com.chatbot.demo.service.ConversationService;
+import com.chatbot.demo.service.FeedbackService;
 import com.chatbot.demo.service.MockDataService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,9 @@ public class ChatControllerTest {
     
     @MockBean
     private MockDataService mockDataService;
+    
+    @MockBean
+    private FeedbackService feedbackService;
     
     @Test
     public void testChatEndpointWithValidGreeting() throws Exception {
