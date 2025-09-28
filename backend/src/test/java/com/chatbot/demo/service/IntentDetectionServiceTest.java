@@ -12,7 +12,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -448,11 +450,35 @@ class IntentDetectionServiceTest {
     }
     
     @Test
-    void isConfirmationResponse_ShouldHandleNullAndEmptyStrings() {
+    void isConfirmationResponse_ShouldHandleDuplicateTransactionContext() {
+        // Given
+        Intent duplicateIntent = new Intent(
+            IntentName.TRANSACTION_DISPUTE,
+            0.7f,
+            Map.of("suggestion", "duplicate_transaction"),
+            Arrays.asList("duplicate", "cancel", "report", "transaction"),
+            "I notice you have similar transactions. Would you like to cancel or report it?"
+        );
+        
         // When & Then
-        assertFalse(intentDetectionService.isConfirmationResponse(null));
-        assertFalse(intentDetectionService.isConfirmationResponse(""));
-        assertFalse(intentDetectionService.isConfirmationResponse("   "));
+        assertTrue(intentDetectionService.isConfirmationResponse("cancel", duplicateIntent), 
+            "Should detect 'cancel' as confirmation in duplicate transaction context");
+        assertTrue(intentDetectionService.isConfirmationResponse("report", duplicateIntent), 
+            "Should detect 'report' as confirmation in duplicate transaction context");
+        
+        // But not for other intents
+        Intent paymentIntent = new Intent(
+            IntentName.PAYMENT_INQUIRY,
+            0.8f,
+            Map.of("suggestion", "overdue_payment"),
+            Arrays.asList("overdue", "payment"),
+            "Overdue payment message"
+        );
+        
+        assertFalse(intentDetectionService.isConfirmationResponse("cancel", paymentIntent), 
+            "Should not detect 'cancel' as confirmation for non-duplicate intents");
+        assertFalse(intentDetectionService.isConfirmationResponse("report", paymentIntent), 
+            "Should not detect 'report' as confirmation for non-duplicate intents");
     }
     
     @Test

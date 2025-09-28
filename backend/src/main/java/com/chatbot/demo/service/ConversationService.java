@@ -168,7 +168,7 @@ public class ConversationService {
      */
     private ChatMessage handleIntentPredictionState(String message, SessionContext context) {
         // Check if user is confirming a predicted intent
-        if (intentDetectionService.isConfirmationResponse(message) && context.getCurrentIntent() != null) {
+        if (intentDetectionService.isConfirmationResponse(message, context.getCurrentIntent()) && context.getCurrentIntent() != null) {
             // User confirmed the predicted intent, process it
             sessionManager.updateSessionState(context.getSessionId(), ConversationState.INTENT_HANDLING);
             return handleIntentHandlingState("", context); // Empty message since we're using stored intent
@@ -391,6 +391,14 @@ public class ConversationService {
      * Generate dispute response
      */
     private String generateDisputeResponse(User user) {
+        // Check if this is a duplicate transaction scenario
+        String scenario = mockDataService.getUserScenario(user.getUserId());
+        if (MockDataService.SCENARIO_DUPLICATE_TRANSACTION.equals(scenario)) {
+            return "I understand you want to cancel a duplicate transaction. " +
+                   "I've identified transactions that appear to be duplicates. " +
+                   "Would you like me to show you the details and help you cancel the duplicate transaction?";
+        }
+        
         return "I understand you want to dispute a transaction. " +
                "I can help you identify the transaction and guide you through the dispute process. " +
                "Which transaction would you like to dispute?";

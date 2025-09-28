@@ -29,7 +29,7 @@ public class IntentDetectionService {
         IntentName.GREETING, Arrays.asList("hi", "hello", "hey", "good morning", "good afternoon", "good evening", "greetings"),
         IntentName.PAYMENT_INQUIRY, Arrays.asList("payment", "balance", "overdue", "due date", "amount", "owe", "bill", "outstanding"),
         IntentName.E_STATEMENT, Arrays.asList("statement", "transactions", "summary", "history", "charges", "purchases", "spending"),
-        IntentName.TRANSACTION_DISPUTE, Arrays.asList("dispute", "wrong charge", "cancel.*transaction", "refund", "incorrect", "unauthorized", "fraud", "dispute.*charge", "want.*dispute"),
+        IntentName.TRANSACTION_DISPUTE, Arrays.asList("dispute", "wrong charge", "cancel.*transaction", "refund", "incorrect", "unauthorized", "fraud", "dispute.*charge", "want.*dispute", "cancel", "report"),
         IntentName.FEEDBACK_COLLECTION, Arrays.asList("feedback", "rate", "experience", "service", "satisfied", "complaint", "suggestion")
     );
     
@@ -88,16 +88,29 @@ public class IntentDetectionService {
     
     /**
      * Check if the message is a confirmation response (yes, sure, okay, etc.)
+     * Also handles context-specific confirmations for duplicate transaction suggestions
      * 
      * @param message User message text
+     * @param currentIntent Current intent context (optional)
      * @return true if message indicates confirmation
      */
-    public boolean isConfirmationResponse(String message) {
+    public boolean isConfirmationResponse(String message, Intent currentIntent) {
         if (message == null || message.trim().isEmpty()) {
             return false;
         }
         
         String normalizedMessage = message.toLowerCase().trim();
+        
+        // Context-specific handling for duplicate transaction suggestions
+        if (currentIntent != null && 
+            currentIntent.getIntentName() == IntentName.TRANSACTION_DISPUTE &&
+            "duplicate_transaction".equals(currentIntent.getParameters().get("suggestion"))) {
+            // For duplicate transaction context, "cancel" and "report" are confirmations
+            if (normalizedMessage.equals("cancel") || normalizedMessage.equals("report")) {
+                return true;
+            }
+        }
+        
         List<String> confirmationKeywords = Arrays.asList(
             "yes", "yeah", "yep", "yup", "sure", "okay", "ok", "alright", "right", 
             "correct", "absolutely", "definitely", "certainly", "of course", "please", "go ahead"
@@ -106,6 +119,16 @@ public class IntentDetectionService {
         return confirmationKeywords.stream().anyMatch(keyword -> 
             normalizedMessage.equals(keyword) || normalizedMessage.matches("\\b" + keyword + "\\b.*")
         );
+    }
+    
+    /**
+     * Check if the message is a confirmation response (yes, sure, okay, etc.)
+     * 
+     * @param message User message text
+     * @return true if message indicates confirmation
+     */
+    public boolean isConfirmationResponse(String message) {
+        return isConfirmationResponse(message, null);
     }
     
     /**
@@ -175,8 +198,8 @@ public class IntentDetectionService {
                             IntentName.TRANSACTION_DISPUTE,
                             0.7f,
                             Map.of("suggestion", "duplicate_transaction"),
-                            Arrays.asList("duplicate", "cancel", "transaction"),
-                            "I notice you have similar transactions. Would you like to check for duplicates or cancel any transactions?"
+                            Arrays.asList("duplicate", "cancel", "report", "transaction"),
+                            "I notice you have similar transactions. Would you like to cancel or report it?"
                         ));
                     }
                     break;
