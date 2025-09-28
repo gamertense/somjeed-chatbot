@@ -1,6 +1,8 @@
 package com.chatbot.demo.controller;
 
 import com.chatbot.demo.dto.ChatRequest;
+import com.chatbot.demo.model.User;
+import com.chatbot.demo.model.WeatherContext;
 import com.chatbot.demo.service.MockDataService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -10,6 +12,11 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.hamcrest.Matchers.*;
@@ -33,6 +40,21 @@ public class ChatControllerTest {
     public void testChatEndpointWithValidGreeting() throws Exception {
         // Given
         ChatRequest request = new ChatRequest("Hello", null, "user123");
+        
+        // Mock the weather context
+        WeatherContext weatherContext = new WeatherContext(
+            WeatherContext.WeatherCondition.SUNNY, 24, "Sunny day", LocalDateTime.now()
+        );
+        when(mockDataService.getCurrentWeatherContext()).thenReturn(weatherContext);
+        
+        // Mock the user data
+        User user = new User(
+            "user123", "****-****-****-1234", 
+            new BigDecimal("1250.00"), new BigDecimal("5000.00"),
+            LocalDate.of(2025, 10, 15), LocalDate.of(2025, 9, 15),
+            User.PaymentStatus.CURRENT
+        );
+        when(mockDataService.getUserById("user123")).thenReturn(user);
         
         // When & Then
         mockMvc.perform(post("/api/v1/chat")
