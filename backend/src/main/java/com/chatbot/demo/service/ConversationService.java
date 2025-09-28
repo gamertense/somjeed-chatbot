@@ -235,8 +235,6 @@ public class ConversationService {
         // Move to feedback state after handling intent
         sessionManager.updateSessionState(context.getSessionId(), ConversationState.FEEDBACK);
         
-        response += "\n\nIs there anything else I can help you with today?";
-        
         return new ChatMessage(
             "msg_" + System.currentTimeMillis(),
             context.getSessionId(),
