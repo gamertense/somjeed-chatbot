@@ -289,4 +289,90 @@ public class MockDataService {
         User user = getUserById(userId);
         return user != null && user.getPaymentStatus() == User.PaymentStatus.OVERDUE;
     }
+    
+    // Intent-specific data methods for Story 1.4
+    
+    /**
+     * Get payment summary for PAYMENT_INQUIRY intent responses
+     * @param userId User identifier
+     * @return PaymentSummary containing balance, due date, and payment status
+     */
+    public PaymentSummary getPaymentSummary(String userId) {
+        User user = getUserById(userId);
+        if (user == null) {
+            return null;
+        }
+        
+        return new PaymentSummary(
+            userId,
+            user.getCurrentBalance(),
+            user.getAvailableCredit(),
+            user.getDueDate(),
+            user.getPaymentStatus(),
+            user.getLastPaymentDate()
+        );
+    }
+    
+    /**
+     * Get transaction history for E_STATEMENT intent responses
+     * @param userId User identifier
+     * @param fromDate Start date for transaction history
+     * @param toDate End date for transaction history
+     * @return List of transactions within the specified date range
+     */
+    public List<Transaction> getTransactionHistory(String userId, LocalDate fromDate, LocalDate toDate) {
+        List<Transaction> userTransactions = getTransactionsByUserId(userId);
+        
+        if (fromDate == null && toDate == null) {
+            return userTransactions;
+        }
+        
+        return userTransactions.stream()
+            .filter(transaction -> {
+                LocalDate transactionDate = transaction.getTransactionDate().toLocalDate();
+                boolean afterFromDate = fromDate == null || !transactionDate.isBefore(fromDate);
+                boolean beforeToDate = toDate == null || !transactionDate.isAfter(toDate);
+                return afterFromDate && beforeToDate;
+            })
+            .toList();
+    }
+    
+    /**
+     * Initiate dispute process for TRANSACTION_DISPUTE intent responses
+     * @param userId User identifier
+     * @param transactionId Transaction identifier (null for general dispute)
+     * @return DisputeCase containing dispute reference and next steps
+     */
+    public DisputeCase initiateDisputeProcess(String userId, String transactionId) {
+        String disputeId = "DISP-" + System.currentTimeMillis();
+        String caseReference = "CASE" + disputeId.substring(5);
+        
+        // If transaction ID provided, find the specific transaction
+        Transaction disputedTransaction = null;
+        if (transactionId != null) {
+            disputedTransaction = getTransactionsByUserId(userId).stream()
+                .filter(txn -> txn.getTransactionId().equals(transactionId))
+                .findFirst()
+                .orElse(null);
+        }
+        
+        List<String> nextSteps = Arrays.asList(
+            "Your dispute case " + caseReference + " has been created",
+            "We will review the transaction within 5-10 business days",
+            "You will receive updates via your registered contact information",
+            "Keep your receipts and documentation for reference"
+        );
+        
+        return new DisputeCase(
+            disputeId,
+            caseReference,
+            userId,
+            disputedTransaction,
+            LocalDateTime.now(),
+            DisputeCase.DisputeStatus.INITIATED,
+            nextSteps
+        );
+    }
+    
+
 }

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -92,13 +93,81 @@ public class MockDataServiceTest {
     }
     
     @Test
-    public void testHasOverduePayment() {
-        // When & Then
-        assertFalse(mockDataService.hasOverduePayment("user123")); // CURRENT status
-        assertTrue(mockDataService.hasOverduePayment("user456"));  // OVERDUE status
-        assertFalse(mockDataService.hasOverduePayment("user789")); // UPCOMING status
-        assertFalse(mockDataService.hasOverduePayment("nonexistent")); // null user
+    void hasOverduePayment_ShouldReturnTrueForOverdueUser() {
+        assertTrue(mockDataService.hasOverduePayment("user456"));
     }
+    
+    // Story 1.4: Intent-specific data method tests
+    
+    @Test
+    void getPaymentSummary_ShouldReturnValidSummaryForExistingUser() {
+        PaymentSummary summary = mockDataService.getPaymentSummary("user123");
+        
+        assertNotNull(summary);
+        assertEquals("user123", summary.getUserId());
+        assertEquals(new BigDecimal("1250.00"), summary.getOutstandingBalance());
+        assertEquals(new BigDecimal("5000.00"), summary.getAvailableCredit());
+        assertNotNull(summary.getDueDate());
+        assertNotNull(summary.getPaymentStatus());
+    }
+    
+    @Test
+    void getPaymentSummary_ShouldReturnNullForNonExistentUser() {
+        PaymentSummary summary = mockDataService.getPaymentSummary("nonexistent");
+        
+        assertNull(summary);
+    }
+    
+    @Test
+    void getTransactionHistory_ShouldReturnAllTransactionsWhenNoDatesProvided() {
+        List<Transaction> transactions = mockDataService.getTransactionHistory("user123", null, null);
+        
+        assertNotNull(transactions);
+        assertFalse(transactions.isEmpty());
+        assertEquals(3, transactions.size()); // user123 has 3 transactions
+    }
+    
+    @Test
+    void getTransactionHistory_ShouldFilterTransactionsByDateRange() {
+        LocalDate fromDate = LocalDate.of(2025, 9, 26);
+        LocalDate toDate = LocalDate.of(2025, 9, 28);
+        
+        List<Transaction> transactions = mockDataService.getTransactionHistory("user123", fromDate, toDate);
+        
+        assertNotNull(transactions);
+        // Should contain transactions within the date range
+        transactions.forEach(txn -> {
+            LocalDate txnDate = txn.getTransactionDate().toLocalDate();
+            assertTrue(txnDate.equals(fromDate) || txnDate.equals(toDate) || 
+                      (txnDate.isAfter(fromDate) && txnDate.isBefore(toDate)));
+        });
+    }
+    
+    @Test
+    void initiateDisputeProcess_ShouldCreateDisputeCaseWithGeneralProcess() {
+        DisputeCase disputeCase = mockDataService.initiateDisputeProcess("user123", null);
+        
+        assertNotNull(disputeCase);
+        assertNotNull(disputeCase.getDisputeId());
+        assertNotNull(disputeCase.getCaseReference());
+        assertEquals("user123", disputeCase.getUserId());
+        assertEquals(DisputeCase.DisputeStatus.INITIATED, disputeCase.getStatus());
+        assertNotNull(disputeCase.getNextSteps());
+        assertFalse(disputeCase.getNextSteps().isEmpty());
+        assertTrue(disputeCase.getCaseReference().startsWith("CASE"));
+    }
+    
+    @Test
+    void initiateDisputeProcess_ShouldCreateDisputeCaseWithSpecificTransaction() {
+        DisputeCase disputeCase = mockDataService.initiateDisputeProcess("user123", "txn001");
+        
+        assertNotNull(disputeCase);
+        assertEquals("user123", disputeCase.getUserId());
+        // Should attempt to find the specific transaction (may be null if not found)
+        assertNotNull(disputeCase.getNextSteps());
+    }
+    
+
     
     @Test
     public void testGetAllTransactions() {

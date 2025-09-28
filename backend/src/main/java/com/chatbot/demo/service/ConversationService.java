@@ -368,33 +368,44 @@ public class ConversationService {
     }
     
     /**
-     * Generate payment inquiry response
+     * Generate payment inquiry response using enhanced MockDataService
      */
     private String generatePaymentInquiryResponse(User user) {
+        PaymentSummary paymentSummary = mockDataService.getPaymentSummary(user.getUserId());
+        
+        if (paymentSummary == null) {
+            return "I'm having trouble accessing your payment information right now. Please try again later.";
+        }
+        
         // Special handling for overdue payments to match the example format
-        if (user.getPaymentStatus() == User.PaymentStatus.OVERDUE) {
-            String formattedDate = formatDateForDisplay(user.getDueDate());
+        if (paymentSummary.getPaymentStatus() == User.PaymentStatus.OVERDUE) {
+            String formattedDate = formatDateForDisplay(paymentSummary.getDueDate());
             return String.format(
                 "Your current outstanding balance is %.0f THB, and your due date was %s.",
-                user.getCurrentBalance(),
+                paymentSummary.getOutstandingBalance(),
                 formattedDate
             );
         } else if (MockDataService.SCENARIO_RECENT_PAYMENT.equals(mockDataService.getUserScenario(user.getUserId()))) {
             // Special handling for recent payment scenario - just show balance info
             return String.format(
                 "Your outstanding balance is %.2f THB with an available credit of %.2f THB.",
-                user.getCurrentBalance(),
-                user.getAvailableCredit()
+                paymentSummary.getOutstandingBalance(),
+                paymentSummary.getAvailableCredit()
             );
         } else {
-            // General payment inquiry response
+            // General payment inquiry response with comprehensive information
             return String.format(
-                "Your outstanding balance is %.2f THB with an available credit of %.2f THB. " +
-                "Your payment status is %s and your next due date is %s.",
-                user.getCurrentBalance(),
-                user.getAvailableCredit(),
-                user.getPaymentStatus().toString().toLowerCase(),
-                user.getDueDate()
+                "Your payment summary:\n" +
+                "• Outstanding balance: %.2f THB\n" +
+                "• Available credit: %.2f THB\n" +
+                "• Payment status: %s\n" +
+                "• Next due date: %s\n" +
+                "• Last payment: %s",
+                paymentSummary.getOutstandingBalance(),
+                paymentSummary.getAvailableCredit(),
+                paymentSummary.getPaymentStatus().toString().toLowerCase(),
+                formatDateForDisplay(paymentSummary.getDueDate()),
+                paymentSummary.getLastPaymentDate() != null ? formatDateForDisplay(paymentSummary.getLastPaymentDate()) : "No recent payment"
             );
         }
     }
@@ -409,22 +420,55 @@ public class ConversationService {
     }
     
     /**
-     * Generate statement response
+     * Generate statement response using enhanced MockDataService
      */
     private String generateStatementResponse(User user) {
-        List<Transaction> transactions = mockDataService.getTransactionsByUserId(user.getUserId());
-        return String.format(
-            "You have %d recent transactions totaling $%.2f. " +
-            "Would you like me to show you the details of your recent activity?",
+        // Get last 30 days of transactions
+        LocalDate fromDate = LocalDate.now().minusDays(30);
+        LocalDate toDate = LocalDate.now();
+        
+        List<Transaction> transactions = mockDataService.getTransactionHistory(user.getUserId(), fromDate, toDate);
+        
+        if (transactions.isEmpty()) {
+            return "You don't have any transactions in the last 30 days. Your account shows no recent activity.";
+        }
+        
+        double totalAmount = transactions.stream()
+            .mapToDouble(t -> t.getAmount().doubleValue())
+            .sum();
+            
+        String summary = String.format(
+            "Here's your recent transaction summary (last 30 days):\n" +
+            "• Total transactions: %d\n" +
+            "• Total amount: %.2f THB\n" +
+            "• Date range: %s to %s\n\n" +
+            "Recent transactions:\n",
             transactions.size(),
-            transactions.stream()
-                .mapToDouble(t -> t.getAmount().doubleValue())
-                .sum()
+            Math.abs(totalAmount), // Use absolute value for display
+            formatDateForDisplay(fromDate),
+            formatDateForDisplay(toDate)
         );
+        
+        // Add up to 3 most recent transactions
+        StringBuilder recentTransactions = new StringBuilder();
+        transactions.stream()
+            .sorted((t1, t2) -> t2.getTransactionDate().compareTo(t1.getTransactionDate())) // Most recent first
+            .limit(3)
+            .forEach(txn -> {
+                recentTransactions.append(String.format(
+                    "• %s: %.2f THB (%s)\n",
+                    formatDateForDisplay(txn.getTransactionDate().toLocalDate()),
+                    Math.abs(txn.getAmount().doubleValue()),
+                    txn.getMerchantName()
+                ));
+            });
+        
+        return summary + recentTransactions.toString() + 
+               "\nWould you like me to show you more transaction details or help you with anything else?";
     }
     
     /**
-     * Generate dispute response
+     * Generate dispute response using enhanced MockDataService
      */
     private String generateDisputeResponse(Intent intent, User user) {
         // Check if this is a duplicate transaction scenario
@@ -432,23 +476,43 @@ public class ConversationService {
         if (MockDataService.SCENARIO_DUPLICATE_TRANSACTION.equals(scenario)) {
             // Check the action parameter to provide specific response
             String action = (String) intent.getParameters().get("action");
-            if ("cancel".equals(action)) {
-                return String.format(DUPLICATE_TRANSACTION_BASE_RESPONSE, "cancel", "cancel the duplicate transaction");
-            } else if ("report".equals(action)) {
-                return String.format(DUPLICATE_TRANSACTION_BASE_RESPONSE, "report", "report this issue");
+            if ("cancel".equals(action) || "report".equals(action)) {
+                // Initiate dispute process for duplicate transaction
+                DisputeCase disputeCase = mockDataService.initiateDisputeProcess(user.getUserId(), null);
+                
+                StringBuilder response = new StringBuilder();
+                response.append(String.format(DUPLICATE_TRANSACTION_BASE_RESPONSE, action, action + " the duplicate transaction"));
+                response.append("\n\n");
+                response.append(String.join("\n• ", disputeCase.getNextSteps()));
+                
+                return response.toString();
             } else {
                 // Generic response when no specific action is stored
                 return DUPLICATE_TRANSACTION_GENERIC_RESPONSE;
             }
+        } else {
+            // General dispute process
+            DisputeCase disputeCase = mockDataService.initiateDisputeProcess(user.getUserId(), null);
+            
+            StringBuilder response = new StringBuilder();
+            response.append("I can help you dispute a transaction. ");
+            response.append("Here's what happens next:\n\n");
+            response.append("• " + String.join("\n• ", disputeCase.getNextSteps()));
+            response.append("\n\nWhich specific transaction would you like to dispute? ");
+            response.append("You can describe it or mention the amount and date.");
+            
+            return response.toString();
         }
-        
-        return GENERAL_DISPUTE_RESPONSE;
     }
     
     /**
-     * Generate feedback response
+     * Generate feedback response using enhanced interaction
      */
     private String generateFeedbackResponse() {
-        return FEEDBACK_RESPONSE;
+        return "Thank you for wanting to provide feedback! " +
+               "Your experience matters to us. Please tell me:\n" +
+               "• How would you rate our service today? (1-5 stars)\n" +
+               "• Any specific comments or suggestions?\n\n" +
+               "I'll make sure your feedback reaches our service improvement team.";
     }
 }
