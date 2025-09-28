@@ -78,7 +78,7 @@ export default function Home() {
       id: Date.now().toString(),
       text: data.botMessage,
       sender: "bot",
-      timestamp: new Date(data.timestamp),
+      timestamp: new Date(),
       quickReplies: data.quickReplies,
     };
     setMessages([greetingMessage]);
@@ -119,7 +119,7 @@ export default function Home() {
           id: (Date.now() + 1).toString(),
           text: data.botMessage,
           sender: "bot",
-          timestamp: new Date(data.timestamp),
+          timestamp: new Date(),
           quickReplies: data.quickReplies,
         };
         setMessages((prev) => [...prev, botMessage]);
