@@ -132,6 +132,32 @@ public class SessionManager {
     }
     
     /**
+     * Check if session exists (for feedback service)
+     * 
+     * @param sessionId The session identifier
+     * @return true if session exists
+     */
+    public boolean sessionExists(String sessionId) {
+        return sessions.containsKey(sessionId);
+    }
+    
+    /**
+     * Complete a session and mark it for cleanup
+     * Used after feedback submission to finalize session
+     * 
+     * @param sessionId The session identifier
+     */
+    public void completeSession(String sessionId) {
+        SessionContext context = sessions.get(sessionId);
+        if (context != null) {
+            context.setConversationState(ConversationState.COMPLETE);
+            context.updateActivity();
+            // Session remains in memory for a short time for any final operations
+            // but will be cleaned up by the scheduled cleanup task
+        }
+    }
+    
+    /**
      * Cleanup inactive sessions based on timeout
      * Automatically called by scheduled task every 10 minutes
      */

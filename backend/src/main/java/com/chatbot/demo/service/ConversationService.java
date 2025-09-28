@@ -482,8 +482,7 @@ public class ConversationService {
                 DisputeCase disputeCase = mockDataService.initiateDisputeProcess(user.getUserId(), null);
                 
                 StringBuilder response = new StringBuilder();
-                response.append(String.format(DUPLICATE_TRANSACTION_BASE_RESPONSE, action, action + " the duplicate transaction"));
-                response.append("\n\n");
+                response.append(String.format("I understand you want to %s a duplicate transaction. ", action));
                 response.append(String.join("\n• ", disputeCase.getNextSteps()));
                 
                 return response.toString();

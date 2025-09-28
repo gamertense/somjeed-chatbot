@@ -3,8 +3,11 @@ package com.chatbot.demo.controller;
 import com.chatbot.demo.dto.ChatRequest;
 import com.chatbot.demo.dto.ChatResponse;
 import com.chatbot.demo.dto.ErrorResponse;
+import com.chatbot.demo.dto.FeedbackRequest;
 import com.chatbot.demo.model.ChatMessage;
+import com.chatbot.demo.model.FeedbackResponse;
 import com.chatbot.demo.service.ConversationService;
+import com.chatbot.demo.service.FeedbackService;
 import com.chatbot.demo.service.MockDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +45,9 @@ public class ChatController {
     
     @Autowired
     private MockDataService mockDataService;
+    
+    @Autowired
+    private FeedbackService feedbackService;
     
     /**
      * Single endpoint for all chat interactions.
@@ -130,6 +136,45 @@ public class ChatController {
             case GOODBYE -> Arrays.asList();
             default -> Arrays.asList("Check Balance", "Recent Transactions", "Help");
         };
+    }
+    
+    /**
+     * Feedback submission endpoint
+     * POST /api/v1/chat/feedback
+     */
+    @PostMapping("/chat/feedback")
+    public ResponseEntity<?> submitFeedback(@Valid @RequestBody FeedbackRequest request) {
+        try {
+            logger.info("Received feedback submission: sessionId={}, userId={}, rating={}", 
+                request.getSessionId(), request.getUserId(), request.getRating());
+            
+            // Submit feedback through FeedbackService
+            FeedbackResponse feedbackResponse = feedbackService.submitFeedback(
+                request.getSessionId(),
+                request.getUserId(),
+                request.getRating()
+            );
+            
+            logger.info("Feedback submitted successfully: feedbackId={}", feedbackResponse.getFeedbackId());
+            
+            // Return success response (no sensitive data)
+            return ResponseEntity.ok().build();
+            
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid feedback request: {}", e.getMessage());
+            ErrorResponse error = new ErrorResponse(
+                e.getMessage(),
+                "INVALID_FEEDBACK_REQUEST"
+            );
+            return ResponseEntity.badRequest().body(error);
+        } catch (Exception e) {
+            logger.error("Error processing feedback submission", e);
+            ErrorResponse error = new ErrorResponse(
+                "Internal server error occurred while processing feedback",
+                "FEEDBACK_PROCESSING_ERROR"
+            );
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
     }
     
     /**
