@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import LoginForm from "../components/LoginForm";
+import FeedbackRequest, { FeedbackRating } from "../components/FeedbackRequest";
+import { useInactivityManager } from "../components/InactivityManager";
 import { useSessionStore } from "../stores/SessionStore";
-import { chatService } from "../services/ChatService";
+import { chatService, SendMessageResponse } from "../services/ChatService";
 
 interface Message {
   id: string;
@@ -17,18 +19,41 @@ export default function Home() {
   const [inputText, setInputText] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Inactivity timer state
-  const inactivityTimer = useRef<NodeJS.Timeout | null>(null);
-  const [showInactivityPrompt, setShowInactivityPrompt] = useState(false);
-
-  // Goodbye and feedback state
-  const [showGoodbye, setShowGoodbye] = useState(false);
-  // Feedback emoji options
-  const feedbackEmojis: string[] = ["😊", "😐", "😞"];
   const [loginError, setLoginError] = useState<string | null>(null);
 
+  // Inactivity and feedback state
+  const [showAssistancePrompt, setShowAssistancePrompt] = useState(false);
+  const [showFeedbackRequest, setShowFeedbackRequest] = useState(false);
+  const [lastBotResponseTime, setLastBotResponseTime] = useState<
+    number | undefined
+  >();
+  const [userActivityTrigger, setUserActivityTrigger] = useState<
+    number | undefined
+  >();
+
   const { isLoggedIn, userId, login } = useSessionStore();
+
+  // Initialize inactivity manager
+  useInactivityManager({
+    onShowAssistancePrompt: () => {
+      setShowAssistancePrompt(true);
+      // Add the assistance prompt message to chat
+      const assistanceMessage: Message = {
+        id: `assistance-${Date.now()}`,
+        text: "Do you need any further assistance?",
+        sender: "bot",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, assistanceMessage]);
+    },
+    onShowFeedbackRequest: () => {
+      setShowFeedbackRequest(true);
+    },
+    isAssistancePromptVisible: showAssistancePrompt,
+    isFeedbackVisible: showFeedbackRequest,
+    lastBotResponseTime,
+    userActivityTrigger,
+  });
 
   const handleLogin = async (id: string) => {
     setLoginError(null);
@@ -40,35 +65,13 @@ export default function Home() {
     }
   };
 
-  // Goodbye timer effect (after inactivity prompt)
-  useEffect(() => {
-    if (!showInactivityPrompt) return;
-    if (showGoodbye) return;
-    const timer = setTimeout(() => {
-      setShowGoodbye(true);
-    }, 10000); // 10 seconds after inactivity prompt
-    return () => clearTimeout(timer);
-  }, [showInactivityPrompt, showGoodbye]);
+  const triggerUserActivity = () => {
+    setUserActivityTrigger(Date.now());
+    setShowAssistancePrompt(false);
+    setShowFeedbackRequest(false);
+  };
 
-  // Fetch greeting is now called after login
-
-  // Inactivity monitoring effect
-  useEffect(() => {
-    // Only monitor inactivity if there is at least one user message and not already showing prompt
-    if (messages.length === 0) return;
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg.sender !== "user") return;
-    if (showInactivityPrompt) return;
-    if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
-    inactivityTimer.current = setTimeout(() => {
-      setShowInactivityPrompt(true);
-    }, 10000); // 10 seconds
-    return () => {
-      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
-    };
-  }, [messages, showInactivityPrompt]);
-
-  const fetchGreeting = async (userId: string) => {
+  const fetchGreeting = async (userId: string): Promise<void> => {
     const data = await chatService.sendMessage("hello", null, userId);
     setSessionId(data.sessionId);
     const greetingMessage: Message = {
@@ -77,14 +80,10 @@ export default function Home() {
       sender: "bot",
       timestamp: new Date(data.timestamp),
       quickReplies: data.quickReplies,
-      feedbackOptions: data.feedbackOptions?.map((option: string) => {
-        if (option === "HAPPY") return "😊";
-        if (option === "NEUTRAL") return "😐";
-        if (option === "SAD") return "😢";
-        return option;
-      }),
     };
     setMessages([greetingMessage]);
+    // Start inactivity timer after greeting
+    setLastBotResponseTime(Date.now());
   };
 
   const scrollToBottom = () => {
@@ -98,6 +97,8 @@ export default function Home() {
   const handleSend = async (text?: string) => {
     const messageText = text || inputText.trim();
     if (messageText) {
+      triggerUserActivity(); // Reset inactivity timers
+
       const userMessage: Message = {
         id: Date.now().toString(),
         text: messageText,
@@ -106,11 +107,9 @@ export default function Home() {
       };
       setMessages((prev) => [...prev, userMessage]);
       setInputText("");
-      setShowInactivityPrompt(false); // Reset inactivity prompt on user send
-      setShowGoodbye(false); // Reset goodbye on user send
 
       try {
-        const data = await chatService.sendMessage(
+        const data: SendMessageResponse = await chatService.sendMessage(
           messageText,
           sessionId,
           userId!
@@ -122,14 +121,11 @@ export default function Home() {
           sender: "bot",
           timestamp: new Date(data.timestamp),
           quickReplies: data.quickReplies,
-          feedbackOptions: data.feedbackOptions?.map((option: string) => {
-            if (option === "HAPPY") return "😊";
-            if (option === "NEUTRAL") return "😐";
-            if (option === "SAD") return "😢";
-            return option;
-          }),
         };
         setMessages((prev) => [...prev, botMessage]);
+
+        // Start inactivity timer after bot response (service completion)
+        setLastBotResponseTime(Date.now());
       } catch {
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -146,34 +142,42 @@ export default function Home() {
     handleSend(reply);
   };
 
-  const handleFeedback = async (option: string) => {
-    // If feedback is an emoji, send to backend as feedback
-    if (["😊", "😐", "😞"].includes(option)) {
-      try {
-        await chatService.sendFeedback(sessionId!, userId!, option);
-      } catch {
-        // Optionally show error or ignore
-      }
-      setShowGoodbye(false); // Hide feedback after sending
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          text: "Thank you for your feedback!",
-          sender: "bot",
-          timestamp: new Date(),
-        },
-      ]);
-    } else {
-      handleSend(`Feedback: ${option}`);
+  const handleFeedbackSubmit = async (rating: FeedbackRating) => {
+    try {
+      await chatService.sendFeedback(sessionId!, userId!, rating);
+
+      // Hide feedback UI
+      setShowFeedbackRequest(false);
+
+      // Add confirmation message
+      const confirmationMessage: Message = {
+        id: Date.now().toString(),
+        text: "Thank you for your feedback! 🙏",
+        sender: "bot",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, confirmationMessage]);
+
+      // Clear all timers - session complete
+      setLastBotResponseTime(undefined);
+      setUserActivityTrigger(undefined);
+    } catch (error) {
+      console.error("Failed to submit feedback:", error);
+      // Optionally show error message to user
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    triggerUserActivity(); // Trigger activity on typing
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputText(e.target.value);
+    triggerUserActivity(); // Trigger activity on typing
   };
 
   return !isLoggedIn ? (
@@ -215,42 +219,10 @@ export default function Home() {
                         }`}
                       >
                         <p className="text-sm">{message.text}</p>
-                        {/* Goodbye and Feedback */}
-                        {showGoodbye && (
-                          <div className="flex flex-col items-center mt-4 space-y-2">
-                            <div className="bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-2 rounded-lg shadow">
-                              Thank you for chatting! How satisfied are you?
-                            </div>
-                            <div className="flex space-x-4 mt-2">
-                              {feedbackEmojis.map((emoji: string) => (
-                                <button
-                                  key={emoji}
-                                  onClick={() => handleFeedback(emoji)}
-                                  className="text-3xl hover:scale-110"
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
                         <p className="text-xs opacity-70 mt-1">
                           {message.timestamp.toLocaleTimeString()}
                         </p>
                       </div>
-                      {message.sender === "bot" && message.feedbackOptions && (
-                        <div className="flex space-x-2 mt-2">
-                          {message.feedbackOptions.map((option, index) => (
-                            <button
-                              key={index}
-                              onClick={() => handleFeedback(option)}
-                              className="text-2xl hover:scale-110"
-                            >
-                              {option}
-                            </button>
-                          ))}
-                        </div>
-                      )}
                       {message.quickReplies && (
                         <div className="flex flex-wrap gap-2 mt-2">
                           {message.quickReplies.map((reply, index) => (
@@ -268,14 +240,14 @@ export default function Home() {
                   </div>
                 ))
               )}
-              {/* Inactivity Prompt */}
-              {showInactivityPrompt && (
-                <div className="flex justify-center mt-4">
-                  <div className="bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 px-4 py-2 rounded-lg shadow">
-                    Do you need any further assistance?
-                  </div>
-                </div>
-              )}
+
+              {/* Feedback Request Component */}
+              <FeedbackRequest
+                onFeedbackSubmit={handleFeedbackSubmit}
+                isVisible={showFeedbackRequest}
+                onDismiss={() => setShowFeedbackRequest(false)}
+              />
+
               <div ref={messagesEndRef} />
             </div>
           </div>
@@ -288,7 +260,7 @@ export default function Home() {
                 placeholder="Type your message..."
                 className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
               />
               <button
