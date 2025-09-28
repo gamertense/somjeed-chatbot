@@ -194,10 +194,12 @@ public class IntentDetectionService {
                     
                 case "DUPLICATE_TRANSACTION":
                     if (hasDuplicateTransactions(user.getUserId())) {
+                        Map<String, Object> parameters = new HashMap<>();
+                        parameters.put("suggestion", "duplicate_transaction");
                         predictions.add(new Intent(
                             IntentName.TRANSACTION_DISPUTE,
                             0.7f,
-                            Map.of("suggestion", "duplicate_transaction"),
+                            parameters,
                             Arrays.asList("duplicate", "cancel", "report", "transaction"),
                             "I notice you have similar transactions. Would you like to cancel or report it?"
                         ));
