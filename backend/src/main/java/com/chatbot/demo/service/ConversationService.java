@@ -23,6 +23,33 @@ public class ConversationService {
     private final WeatherService weatherService;
     private final SessionManager sessionManager;
     
+    // Duplicate transaction response templates
+    private static final String DUPLICATE_TRANSACTION_BASE_RESPONSE = 
+        "I understand you want to %s a duplicate transaction. " +
+        "I've identified transactions that appear to be duplicates. " +
+        "Would you like me to show you the details and help you %s?";
+    
+    private static final String DUPLICATE_TRANSACTION_GENERIC_RESPONSE = 
+        "I understand you want to address a duplicate transaction. " +
+        "I've identified transactions that appear to be duplicates. " +
+        "Would you like me to show you the details and help you resolve this issue?";
+    
+    private static final String GENERAL_DISPUTE_RESPONSE = 
+        "I understand you want to dispute a transaction. " +
+        "I can help you identify the transaction and guide you through the dispute process. " +
+        "Which transaction would you like to dispute?";
+    
+    // Greeting constants
+    private static final String GREETING_MORNING = "Good morning";
+    private static final String GREETING_AFTERNOON = "Good afternoon";
+    private static final String GREETING_EVENING = "Good evening";
+    
+    // General response constants
+    private static final String DEFAULT_HELP_MESSAGE = "How can I help you with your credit card today?";
+    private static final String FEEDBACK_RESPONSE = 
+        "Thank you for wanting to provide feedback! " +
+        "Your experience matters to us. How would you rate our service today?";
+    
     @Autowired
     public ConversationService(
         IntentDetectionService intentDetectionService,
@@ -125,7 +152,7 @@ public class ConversationService {
             case GREETING -> generateContextualGreeting(user);
             case PAYMENT_INQUIRY -> generatePaymentInquiryResponse(user);
             case E_STATEMENT -> generateStatementResponse(user);
-            case TRANSACTION_DISPUTE -> generateDisputeResponse(user);
+            case TRANSACTION_DISPUTE -> generateDisputeResponse(intent, user);
             case FEEDBACK_COLLECTION -> generateFeedbackResponse();
             case UNKNOWN -> "I'm not sure how to help with that. Could you please rephrase your question about your credit card?";
         };
@@ -169,6 +196,15 @@ public class ConversationService {
     private ChatMessage handleIntentPredictionState(String message, SessionContext context) {
         // Check if user is confirming a predicted intent
         if (intentDetectionService.isConfirmationResponse(message, context.getCurrentIntent()) && context.getCurrentIntent() != null) {
+            // For duplicate transaction context, store the specific action (cancel/report)
+            if (context.getCurrentIntent().getIntentName() == Intent.IntentName.TRANSACTION_DISPUTE &&
+                "duplicate_transaction".equals(context.getCurrentIntent().getParameters().get("suggestion"))) {
+                if ("cancel".equalsIgnoreCase(message.trim())) {
+                    context.getCurrentIntent().getParameters().put("action", "cancel");
+                } else if ("report".equalsIgnoreCase(message.trim())) {
+                    context.getCurrentIntent().getParameters().put("action", "report");
+                }
+            }
             // User confirmed the predicted intent, process it
             sessionManager.updateSessionState(context.getSessionId(), ConversationState.INTENT_HANDLING);
             return handleIntentHandlingState("", context); // Empty message since we're using stored intent
@@ -307,11 +343,11 @@ public class ConversationService {
         LocalTime currentTime = LocalTime.now();
         
         if (currentTime.isBefore(LocalTime.NOON)) {
-            return "Good morning";
+            return GREETING_MORNING;
         } else if (currentTime.isBefore(LocalTime.of(17, 0))) {
-            return "Good afternoon";
+            return GREETING_AFTERNOON;
         } else {
-            return "Good evening";
+            return GREETING_EVENING;
         }
     }
     
@@ -320,7 +356,7 @@ public class ConversationService {
      */
     private String generateProactiveSuggestions(List<Intent> predictions) {
         if (predictions.isEmpty()) {
-            return "How can I help you with your credit card today?";
+            return DEFAULT_HELP_MESSAGE;
         }
         
         StringBuilder suggestions = new StringBuilder();
@@ -390,25 +426,29 @@ public class ConversationService {
     /**
      * Generate dispute response
      */
-    private String generateDisputeResponse(User user) {
+    private String generateDisputeResponse(Intent intent, User user) {
         // Check if this is a duplicate transaction scenario
         String scenario = mockDataService.getUserScenario(user.getUserId());
         if (MockDataService.SCENARIO_DUPLICATE_TRANSACTION.equals(scenario)) {
-            return "I understand you want to cancel a duplicate transaction. " +
-                   "I've identified transactions that appear to be duplicates. " +
-                   "Would you like me to show you the details and help you cancel the duplicate transaction?";
+            // Check the action parameter to provide specific response
+            String action = (String) intent.getParameters().get("action");
+            if ("cancel".equals(action)) {
+                return String.format(DUPLICATE_TRANSACTION_BASE_RESPONSE, "cancel", "cancel the duplicate transaction");
+            } else if ("report".equals(action)) {
+                return String.format(DUPLICATE_TRANSACTION_BASE_RESPONSE, "report", "report this issue");
+            } else {
+                // Generic response when no specific action is stored
+                return DUPLICATE_TRANSACTION_GENERIC_RESPONSE;
+            }
         }
         
-        return "I understand you want to dispute a transaction. " +
-               "I can help you identify the transaction and guide you through the dispute process. " +
-               "Which transaction would you like to dispute?";
+        return GENERAL_DISPUTE_RESPONSE;
     }
     
     /**
      * Generate feedback response
      */
     private String generateFeedbackResponse() {
-        return "Thank you for wanting to provide feedback! " +
-               "Your experience matters to us. How would you rate our service today?";
+        return FEEDBACK_RESPONSE;
     }
 }

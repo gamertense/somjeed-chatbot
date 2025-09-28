@@ -482,6 +482,24 @@ class IntentDetectionServiceTest {
     }
     
     @Test
+    void isConfirmationResponse_ShouldHandleDuplicateTransactionContextCaseInsensitive() {
+        // Given
+        Intent duplicateIntent = new Intent(
+            IntentName.TRANSACTION_DISPUTE,
+            0.7f,
+            Map.of("suggestion", "duplicate_transaction"),
+            Arrays.asList("duplicate", "cancel", "report", "transaction"),
+            "I notice you have similar transactions. Would you like to cancel or report it?"
+        );
+        
+        // When & Then
+        assertTrue(intentDetectionService.isConfirmationResponse("CANCEL", duplicateIntent), 
+            "Should detect 'CANCEL' as confirmation (case insensitive)");
+        assertTrue(intentDetectionService.isConfirmationResponse("Report", duplicateIntent), 
+            "Should detect 'Report' as confirmation (case insensitive)");
+    }
+    
+    @Test
     void isNegativeResponse_ShouldHandleNullAndEmptyStrings() {
         // When & Then
         assertFalse(intentDetectionService.isNegativeResponse(null));
