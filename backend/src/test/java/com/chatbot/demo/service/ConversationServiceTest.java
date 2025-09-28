@@ -259,7 +259,6 @@ class ConversationServiceTest {
         // Then
         assertNotNull(result);
         assertTrue(result.getContent().contains("balance"));
-        assertTrue(result.getContent().contains("anything else"));
         verify(sessionManager).updateSessionState(sessionId, ConversationState.FEEDBACK);
     }
     

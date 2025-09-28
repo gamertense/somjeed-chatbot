@@ -343,10 +343,17 @@ public class ConversationService {
                 user.getCurrentBalance(),
                 formattedDate
             );
+        } else if (MockDataService.SCENARIO_RECENT_PAYMENT.equals(mockDataService.getUserScenario(user.getUserId()))) {
+            // Special handling for recent payment scenario - just show balance info
+            return String.format(
+                "Your outstanding balance is %.2f THB with an available credit of %.2f THB.",
+                user.getCurrentBalance(),
+                user.getAvailableCredit()
+            );
         } else {
             // General payment inquiry response
             return String.format(
-                "Your current balance is %.2f THB with an available credit of %.2f THB. " +
+                "Your outstanding balance is %.2f THB with an available credit of %.2f THB. " +
                 "Your payment status is %s and your next due date is %s.",
                 user.getCurrentBalance(),
                 user.getAvailableCredit(),

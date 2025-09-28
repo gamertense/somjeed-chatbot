@@ -15,6 +15,11 @@ import java.util.*;
 @Service
 public class MockDataService {
     
+    // User scenario constants
+    public static final String SCENARIO_OVERDUE_PAYMENT = "OVERDUE_PAYMENT";
+    public static final String SCENARIO_RECENT_PAYMENT = "RECENT_PAYMENT";
+    public static final String SCENARIO_DUPLICATE_TRANSACTION = "DUPLICATE_TRANSACTION";
+    
     private final Map<String, User> users;
     private final Map<String, List<Transaction>> userTransactions;
     private final WeatherContext currentWeatherContext;
@@ -212,9 +217,9 @@ public class MockDataService {
      */
     public String getUserScenario(String userId) {
         return switch (userId) {
-            case "user_overdue" -> "OVERDUE_PAYMENT";
-            case "user_recent_payment" -> "RECENT_PAYMENT"; 
-            case "user_duplicate_txn" -> "DUPLICATE_TRANSACTION";
+            case "user_overdue" -> SCENARIO_OVERDUE_PAYMENT;
+            case "user_recent_payment" -> SCENARIO_RECENT_PAYMENT; 
+            case "user_duplicate_txn" -> SCENARIO_DUPLICATE_TRANSACTION;
             default -> null; // Regular users don't have scenario types
         };
     }
