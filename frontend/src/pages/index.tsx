@@ -74,14 +74,20 @@ export default function Home() {
   const fetchGreeting = async (userId: string): Promise<void> => {
     const data = await chatService.sendMessage("hello", null, userId);
     setSessionId(data.sessionId);
-    const greetingMessage: Message = {
-      id: Date.now().toString(),
-      text: data.botMessage,
+    const messageTexts = data.botMessage
+      .split("\n")
+      .map((m) => m.trim())
+      .filter((m) => m);
+    const greetingMessages: Message[] = messageTexts.map((text, index) => ({
+      id: (Date.now() + index).toString(),
+      text,
       sender: "bot",
       timestamp: new Date(),
-      quickReplies: data.quickReplies,
-    };
-    setMessages([greetingMessage]);
+      ...(index === messageTexts.length - 1
+        ? { quickReplies: data.quickReplies }
+        : {}),
+    }));
+    setMessages(greetingMessages);
     // Start inactivity timer after greeting
     setLastBotResponseTime(Date.now());
   };
@@ -115,14 +121,20 @@ export default function Home() {
           userId!
         );
         setSessionId(data.sessionId);
-        const botMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: data.botMessage,
+        const messageTexts = data.botMessage
+          .split("\n")
+          .map((m) => m.trim())
+          .filter((m) => m);
+        const botMessages: Message[] = messageTexts.map((text, index) => ({
+          id: (Date.now() + index + 1).toString(),
+          text,
           sender: "bot",
           timestamp: new Date(),
-          quickReplies: data.quickReplies,
-        };
-        setMessages((prev) => [...prev, botMessage]);
+          ...(index === messageTexts.length - 1
+            ? { quickReplies: data.quickReplies }
+            : {}),
+        }));
+        setMessages((prev) => [...prev, ...botMessages]);
 
         // Start inactivity timer after bot response (service completion)
         setLastBotResponseTime(Date.now());
