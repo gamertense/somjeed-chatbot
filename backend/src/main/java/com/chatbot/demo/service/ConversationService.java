@@ -464,6 +464,7 @@ public class ConversationService {
             });
         
         return summary + recentTransactions.toString() + 
+               "\n📄 You can also download your complete statement here: https://www.ciz.nl/test-download\n" +
                "\nWould you like me to show you more transaction details or help you with anything else?";
     }
     
