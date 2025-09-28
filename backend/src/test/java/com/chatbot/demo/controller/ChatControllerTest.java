@@ -58,7 +58,7 @@ public class ChatControllerTest {
             ChatMessage.MessageType.TEXT
         );
         
-        when(conversationService.processMessage(eq("Hello"), anyString()))
+        when(conversationService.processMessage(eq("Hello"), anyString(), eq("user123")))
             .thenReturn(mockChatMessage);
         
         // When & Then

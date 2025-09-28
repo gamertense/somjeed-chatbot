@@ -5,6 +5,7 @@ import com.chatbot.demo.model.enums.ConversationState;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.List;
@@ -43,13 +44,32 @@ public class ConversationService {
      * @return Chat response with appropriate content
      */
     public ChatMessage processMessage(String message, String sessionId) {
+        return processMessage(message, sessionId, null);
+    }
+    
+    /**
+     * Process incoming chat message and orchestrate conversation flow
+     * 
+     * @param message User message text
+     * @param sessionId Session identifier
+     * @param userId User identifier for new session creation (optional)
+     * @return Chat response with appropriate content
+     */
+    public ChatMessage processMessage(String message, String sessionId, String userId) {
         // Get or create session context
         SessionContext sessionContext = sessionManager.getSessionContext(sessionId);
         String activeSessionId = sessionId;
         
         if (sessionContext == null) {
-            // Create new session with default user (user123 for demo)
-            User user = mockDataService.getUserById("user123");
+            // Determine which user to use for new session
+            String targetUserId = userId != null ? userId : "user123"; // Default to user123 for backward compatibility
+            User user = mockDataService.getUserById(targetUserId);
+            
+            if (user == null) {
+                // Fallback to user123 if specified userId not found
+                user = mockDataService.getUserById("user123");
+            }
+            
             activeSessionId = sessionManager.createSession(user);
             sessionContext = sessionManager.getSessionContext(activeSessionId);
         }
@@ -70,17 +90,27 @@ public class ConversationService {
     }
     
     /**
-     * Generate contextual greeting with time and weather information
+     * Generate contextual greeting with time, weather, and proactive prediction suggestions
      * 
      * @param user User context for personalization
-     * @return Contextual greeting message
+     * @return Contextual greeting message with predictions
      */
     public String generateContextualGreeting(User user) {
         WeatherContext weather = weatherService.getCurrentWeather();
         String timeGreeting = getTimeBasedGreeting();
         String weatherText = weatherService.getGreetingWeatherText(weather.getCondition());
         
-        return String.format("%s, %s", timeGreeting, weatherText);
+        // Build base greeting
+        String baseGreeting = String.format("%s, %s", timeGreeting, weatherText);
+        
+        // Add proactive suggestions based on user context
+        List<Intent> predictions = intentDetectionService.predictIntent(user);
+        if (!predictions.isEmpty()) {
+            String suggestions = generateProactiveSuggestions(predictions);
+            return baseGreeting + "\n" + suggestions;
+        }
+        
+        return baseGreeting;
     }
     
     /**
@@ -109,20 +139,21 @@ public class ConversationService {
         
         if (detectedIntent.getIntentName() == Intent.IntentName.GREETING || !context.isHasReceivedGreeting()) {
             String greeting = generateContextualGreeting(context.getUser());
+            
+            // Store the most likely prediction in session context for confirmation handling
+            List<Intent> predictions = intentDetectionService.predictIntent(context.getUser());
+            if (!predictions.isEmpty()) {
+                context.setCurrentIntent(predictions.get(0)); // Store the first/most likely prediction
+            }
+            
             sessionManager.markGreetingSent(context.getSessionId());
             sessionManager.updateSessionState(context.getSessionId(), ConversationState.INTENT_PREDICTION);
-            
-            // Add proactive suggestions
-            List<Intent> predictions = intentDetectionService.predictIntent(context.getUser());
-            String proactiveSuggestions = generateProactiveSuggestions(predictions);
-            
-            String fullResponse = greeting + "\n\n" + proactiveSuggestions;
             
             return new ChatMessage(
                 "msg_" + System.currentTimeMillis(),
                 context.getSessionId(),
                 ChatMessage.MessageSender.BOT,
-                fullResponse,
+                greeting,
                 java.time.LocalDateTime.now(),
                 ChatMessage.MessageType.TEXT
             );
@@ -133,9 +164,30 @@ public class ConversationService {
     }
     
     /**
-     * Handle intent prediction state - provide proactive suggestions
+     * Handle intent prediction state - process confirmations or provide proactive suggestions
      */
     private ChatMessage handleIntentPredictionState(String message, SessionContext context) {
+        // Check if user is confirming a predicted intent
+        if (intentDetectionService.isConfirmationResponse(message) && context.getCurrentIntent() != null) {
+            // User confirmed the predicted intent, process it
+            sessionManager.updateSessionState(context.getSessionId(), ConversationState.INTENT_HANDLING);
+            return handleIntentHandlingState("", context); // Empty message since we're using stored intent
+        }
+        
+        // Check if user is rejecting the prediction
+        if (intentDetectionService.isNegativeResponse(message)) {
+            context.setCurrentIntent(null); // Clear predicted intent
+            return new ChatMessage(
+                "msg_" + System.currentTimeMillis(),
+                context.getSessionId(),
+                ChatMessage.MessageSender.BOT,
+                "No problem! How can I help you with your credit card today?",
+                java.time.LocalDateTime.now(),
+                ChatMessage.MessageType.TEXT
+            );
+        }
+        
+        // Try to detect a new intent from the message
         Intent detectedIntent = intentDetectionService.detectIntent(message);
         
         if (detectedIntent.getIntentName() != Intent.IntentName.UNKNOWN) {
@@ -159,13 +211,26 @@ public class ConversationService {
     }
     
     /**
-     * Handle intent handling state - process detected intent
+     * Handle intent handling state - process detected or stored intent
      */
     private ChatMessage handleIntentHandlingState(String message, SessionContext context) {
-        Intent detectedIntent = intentDetectionService.detectIntent(message);
-        context.setCurrentIntent(detectedIntent);
+        Intent intentToHandle;
         
-        String response = handleIntentResponse(detectedIntent, context.getUser());
+        // If message is empty, use the stored intent (confirmation case)
+        // Otherwise, detect intent from the message
+        if (message == null || message.trim().isEmpty()) {
+            intentToHandle = context.getCurrentIntent();
+        } else {
+            intentToHandle = intentDetectionService.detectIntent(message);
+            context.setCurrentIntent(intentToHandle);
+        }
+        
+        // If we still don't have an intent, use the stored one or fall back to unknown
+        if (intentToHandle == null) {
+            intentToHandle = context.getCurrentIntent();
+        }
+        
+        String response = handleIntentResponse(intentToHandle, context.getUser());
         
         // Move to feedback state after handling intent
         sessionManager.updateSessionState(context.getSessionId(), ConversationState.FEEDBACK);
@@ -272,14 +337,34 @@ public class ConversationService {
      * Generate payment inquiry response
      */
     private String generatePaymentInquiryResponse(User user) {
-        return String.format(
-            "Your current balance is $%.2f with an available credit of $%.2f. " +
-            "Your payment status is %s and your next due date is %s.",
-            user.getCurrentBalance(),
-            user.getAvailableCredit(),
-            user.getPaymentStatus().toString().toLowerCase(),
-            user.getDueDate()
-        );
+        // Special handling for overdue payments to match the example format
+        if (user.getPaymentStatus() == User.PaymentStatus.OVERDUE) {
+            String formattedDate = formatDateForDisplay(user.getDueDate());
+            return String.format(
+                "Your current outstanding balance is %.0f THB, and your due date was %s.",
+                user.getCurrentBalance(),
+                formattedDate
+            );
+        } else {
+            // General payment inquiry response
+            return String.format(
+                "Your current balance is %.2f THB with an available credit of %.2f THB. " +
+                "Your payment status is %s and your next due date is %s.",
+                user.getCurrentBalance(),
+                user.getAvailableCredit(),
+                user.getPaymentStatus().toString().toLowerCase(),
+                user.getDueDate()
+            );
+        }
+    }
+    
+    /**
+     * Format date as "1 September 2025"
+     */
+    private String formatDateForDisplay(LocalDate date) {
+        String[] months = {"January", "February", "March", "April", "May", "June",
+                          "July", "August", "September", "October", "November", "December"};
+        return date.getDayOfMonth() + " " + months[date.getMonthValue() - 1] + " " + date.getYear();
     }
     
     /**

@@ -58,7 +58,11 @@ public class ChatController {
                 request.getSessionId() : UUID.randomUUID().toString();
             
             // Process message through ConversationService
-            ChatMessage chatMessage = conversationService.processMessage(request.getMessage(), sessionId);
+            ChatMessage chatMessage = conversationService.processMessage(
+                request.getMessage(), 
+                sessionId, 
+                request.getUserId()
+            );
             
             // Convert to ChatResponse DTO
             ChatResponse response = buildChatResponseFromMessage(chatMessage);

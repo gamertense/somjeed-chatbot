@@ -6,22 +6,30 @@ import com.chatbot.demo.model.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class IntentDetectionServiceTest {
     
     private IntentDetectionService intentDetectionService;
     
+    @Mock
+    private MockDataService mockDataService;
+    
     @BeforeEach
     void setUp() {
         intentDetectionService = new IntentDetectionService();
+        // Inject the mock using reflection for testing
+        ReflectionTestUtils.setField(intentDetectionService, "mockDataService", mockDataService);
     }
     
     @Test
@@ -268,5 +276,218 @@ class IntentDetectionServiceTest {
         
         // Then
         assertTrue(predictions.isEmpty());
+    }
+    
+    // Story 1.3 Tests - Scenario-based Intent Prediction
+    
+    @Test
+    void predictIntent_ShouldPredictOverduePaymentScenario() {
+        // Given
+        User overdueUser = createScenarioUser("user_overdue", User.PaymentStatus.OVERDUE);
+        when(mockDataService.getUserScenario("user_overdue")).thenReturn("OVERDUE_PAYMENT");
+        
+        // When
+        List<Intent> predictions = intentDetectionService.predictIntent(overdueUser);
+        
+        // Then
+        assertFalse(predictions.isEmpty());
+        Intent prediction = predictions.get(0);
+        assertEquals(IntentName.PAYMENT_INQUIRY, prediction.getIntentName());
+        assertEquals(0.9f, prediction.getConfidence());
+        assertTrue(prediction.getResponseTemplate().contains("Looks like your payment is overdue"));
+        assertEquals("overdue_payment", prediction.getParameters().get("suggestion"));
+    }
+    
+    @Test
+    void predictIntent_ShouldPredictRecentPaymentScenario() {
+        // Given
+        User recentPaymentUser = createScenarioUser("user_recent_payment", User.PaymentStatus.CURRENT);
+        when(mockDataService.getUserScenario("user_recent_payment")).thenReturn("RECENT_PAYMENT");
+        
+        // When
+        List<Intent> predictions = intentDetectionService.predictIntent(recentPaymentUser);
+        
+        // Then
+        assertFalse(predictions.isEmpty());
+        Intent prediction = predictions.get(0);
+        assertEquals(IntentName.PAYMENT_INQUIRY, prediction.getIntentName());
+        assertEquals(0.8f, prediction.getConfidence());
+        assertTrue(prediction.getResponseTemplate().contains("payment confirmation today"));
+        assertEquals("recent_payment", prediction.getParameters().get("suggestion"));
+    }
+    
+    @Test
+    void predictIntent_ShouldPredictDuplicateTransactionScenario() {
+        // Given
+        User duplicateUser = createScenarioUser("user_duplicate_txn", User.PaymentStatus.CURRENT);
+        when(mockDataService.getUserScenario("user_duplicate_txn")).thenReturn("DUPLICATE_TRANSACTION");
+        when(mockDataService.getTransactionsByUserId("user_duplicate_txn")).thenReturn(createDuplicateTransactions());
+        
+        // When
+        List<Intent> predictions = intentDetectionService.predictIntent(duplicateUser);
+        
+        // Then
+        assertFalse(predictions.isEmpty());
+        Intent prediction = predictions.get(0);
+        assertEquals(IntentName.TRANSACTION_DISPUTE, prediction.getIntentName());
+        assertEquals(0.7f, prediction.getConfidence());
+        assertTrue(prediction.getResponseTemplate().contains("similar transactions"));
+        assertEquals("duplicate_transaction", prediction.getParameters().get("suggestion"));
+    }
+    
+    @Test
+    void predictIntent_ShouldFallbackToGenericPredictionsForNonScenarioUsers() {
+        // Given
+        User regularUser = new User(
+            "user123",
+            "****-****-****-1234",
+            new BigDecimal("1250.00"),
+            new BigDecimal("5000.00"),
+            LocalDate.of(2025, 10, 15),
+            LocalDate.of(2025, 9, 15),
+            User.PaymentStatus.OVERDUE
+        );
+        when(mockDataService.getUserScenario("user123")).thenReturn(null);
+        
+        // When
+        List<Intent> predictions = intentDetectionService.predictIntent(regularUser);
+        
+        // Then
+        assertFalse(predictions.isEmpty());
+        assertTrue(predictions.stream().anyMatch(intent -> 
+            intent.getIntentName() == IntentName.PAYMENT_INQUIRY &&
+            intent.getResponseTemplate().contains("overdue payment")));
+    }
+    
+    @Test
+    void predictIntent_ShouldNotPredictDuplicateTransactionWhenNoDuplicates() {
+        // Given
+        User duplicateUser = createScenarioUser("user_duplicate_txn", User.PaymentStatus.CURRENT);
+        when(mockDataService.getUserScenario("user_duplicate_txn")).thenReturn("DUPLICATE_TRANSACTION");
+        when(mockDataService.getTransactionsByUserId("user_duplicate_txn")).thenReturn(List.of()); // No transactions
+        
+        // When
+        List<Intent> predictions = intentDetectionService.predictIntent(duplicateUser);
+        
+        // Then
+        assertTrue(predictions.isEmpty());
+    }
+    
+    // Tests for confirmation and negative response detection
+    
+    @Test
+    void isConfirmationResponse_ShouldDetectPositiveResponses() {
+        // Given
+        String[] confirmationMessages = {"yes", "sure", "okay", "ok", "yeah", "yep", "yup", "absolutely", "certainly", "definitely"};
+        
+        for (String message : confirmationMessages) {
+            // When & Then
+            assertTrue(intentDetectionService.isConfirmationResponse(message), 
+                "Should detect '" + message + "' as confirmation");
+        }
+    }
+    
+    @Test
+    void isConfirmationResponse_ShouldDetectPositiveResponsesCaseInsensitive() {
+        // Given
+        String[] confirmationMessages = {"YES", "Sure", "OKAY", "Ok", "Yeah"};
+        
+        for (String message : confirmationMessages) {
+            // When & Then
+            assertTrue(intentDetectionService.isConfirmationResponse(message), 
+                "Should detect '" + message + "' as confirmation (case insensitive)");
+        }
+    }
+    
+    @Test
+    void isConfirmationResponse_ShouldNotDetectNegativeResponses() {
+        // Given
+        String[] negativeMessages = {"no", "nope", "never", "cancel", "not interested", "skip"};
+        
+        for (String message : negativeMessages) {
+            // When & Then
+            assertFalse(intentDetectionService.isConfirmationResponse(message), 
+                "Should not detect '" + message + "' as confirmation");
+        }
+    }
+    
+    @Test
+    void isNegativeResponse_ShouldDetectNegativeResponses() {
+        // Given
+        String[] negativeMessages = {"no", "nope", "never", "cancel", "not interested", "skip"};
+        
+        for (String message : negativeMessages) {
+            // When & Then
+            assertTrue(intentDetectionService.isNegativeResponse(message), 
+                "Should detect '" + message + "' as negative response");
+        }
+    }
+    
+    @Test
+    void isNegativeResponse_ShouldDetectNegativeResponsesCaseInsensitive() {
+        // Given
+        String[] negativeMessages = {"NO", "Nope", "NEVER", "Cancel"};
+        
+        for (String message : negativeMessages) {
+            // When & Then
+            assertTrue(intentDetectionService.isNegativeResponse(message), 
+                "Should detect '" + message + "' as negative response (case insensitive)");
+        }
+    }
+    
+    @Test
+    void isNegativeResponse_ShouldNotDetectPositiveResponses() {
+        // Given
+        String[] positiveMessages = {"yes", "sure", "okay", "definitely"};
+        
+        for (String message : positiveMessages) {
+            // When & Then
+            assertFalse(intentDetectionService.isNegativeResponse(message), 
+                "Should not detect '" + message + "' as negative response");
+        }
+    }
+    
+    @Test
+    void isConfirmationResponse_ShouldHandleNullAndEmptyStrings() {
+        // When & Then
+        assertFalse(intentDetectionService.isConfirmationResponse(null));
+        assertFalse(intentDetectionService.isConfirmationResponse(""));
+        assertFalse(intentDetectionService.isConfirmationResponse("   "));
+    }
+    
+    @Test
+    void isNegativeResponse_ShouldHandleNullAndEmptyStrings() {
+        // When & Then
+        assertFalse(intentDetectionService.isNegativeResponse(null));
+        assertFalse(intentDetectionService.isNegativeResponse(""));
+        assertFalse(intentDetectionService.isNegativeResponse("   "));
+    }
+
+    // Helper methods for test data
+    
+    private User createScenarioUser(String userId, User.PaymentStatus status) {
+        return new User(
+            userId,
+            "****-****-****-1234",
+            new BigDecimal("5000.00"),
+            new BigDecimal("10000.00"),
+            LocalDate.of(2025, 10, 15),
+            LocalDate.of(2025, 9, 15),
+            status
+        );
+    }
+    
+    private List<com.chatbot.demo.model.Transaction> createDuplicateTransactions() {
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        return List.of(
+            new com.chatbot.demo.model.Transaction("txn1", "user_duplicate_txn", new BigDecimal("2890.00"), 
+                "Store A", now.minusHours(36), 
+                com.chatbot.demo.model.Transaction.TransactionCategory.SHOPPING, 
+                com.chatbot.demo.model.Transaction.TransactionStatus.COMPLETED),
+            new com.chatbot.demo.model.Transaction("txn2", "user_duplicate_txn", new BigDecimal("2890.00"), 
+                "Store B", now.minusHours(12), 
+                com.chatbot.demo.model.Transaction.TransactionCategory.SHOPPING, 
+                com.chatbot.demo.model.Transaction.TransactionStatus.COMPLETED)
+        );
     }
 }

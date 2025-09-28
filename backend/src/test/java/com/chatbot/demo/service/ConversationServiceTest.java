@@ -281,4 +281,146 @@ class ConversationServiceTest {
         assertNotNull(result);
         assertTrue(result.getContent().contains("Thank you"));
     }
+    
+    // Story 1.3 Integration Tests
+    
+    @Test
+    void generateContextualGreeting_ShouldIncludePredictionsForScenarioUsers() {
+        // Given
+        User overdueUser = new User(
+            "user_overdue",
+            "****-****-****-4321",
+            new BigDecimal("120000.00"),
+            new BigDecimal("150000.00"),
+            LocalDate.of(2025, 9, 1),
+            LocalDate.of(2025, 8, 1),
+            User.PaymentStatus.OVERDUE
+        );
+        
+        Intent prediction = new Intent(
+            Intent.IntentName.PAYMENT_INQUIRY,
+            0.9f,
+            java.util.Map.of("suggestion", "overdue_payment"),
+            List.of("overdue", "payment"),
+            "Looks like your payment is overdue. Would you like to check your current outstanding balance?"
+        );
+        
+        when(weatherService.getCurrentWeather()).thenReturn(testWeatherContext);
+        when(weatherService.getGreetingWeatherText(any())).thenReturn("on a sunshine day");
+        when(intentDetectionService.predictIntent(overdueUser)).thenReturn(List.of(prediction));
+        
+        // When
+        String greeting = conversationService.generateContextualGreeting(overdueUser);
+        
+        // Then
+        assertTrue(greeting.contains("Good"));
+        assertTrue(greeting.contains("sunshine day"));
+        assertTrue(greeting.contains("💡 Looks like your payment is overdue"));
+    }
+    
+    @Test
+    void processMessage_GreetingState_ShouldIncludeScenarioPredictions() {
+        // Given
+        String message = "Hello";
+        String sessionId = "session_overdue";
+        
+        User overdueUser = new User(
+            "user_overdue",
+            "****-****-****-4321",
+            new BigDecimal("120000.00"),
+            new BigDecimal("150000.00"),
+            LocalDate.of(2025, 9, 1),
+            LocalDate.of(2025, 8, 1),
+            User.PaymentStatus.OVERDUE
+        );
+        
+        SessionContext overdueContext = new SessionContext(
+            sessionId,
+            ConversationState.GREETING,
+            overdueUser,
+            null,
+            java.time.LocalDateTime.now(),
+            0,
+            false
+        );
+        
+        Intent greetingIntent = new Intent(Intent.IntentName.GREETING, 0.9f, null, List.of("hello"), "Hello");
+        Intent prediction = new Intent(
+            Intent.IntentName.PAYMENT_INQUIRY,
+            0.9f,
+            java.util.Map.of("suggestion", "overdue_payment"),
+            List.of("overdue", "payment"),
+            "Looks like your payment is overdue. Would you like to check your current outstanding balance?"
+        );
+        
+        when(sessionManager.getSessionContext(sessionId)).thenReturn(overdueContext);
+        when(intentDetectionService.detectIntent(message)).thenReturn(greetingIntent);
+        when(weatherService.getCurrentWeather()).thenReturn(testWeatherContext);
+        when(weatherService.getGreetingWeatherText(any())).thenReturn("on a sunshine day");
+        when(intentDetectionService.predictIntent(overdueUser)).thenReturn(List.of(prediction));
+        
+        // When
+        ChatMessage result = conversationService.processMessage(message, sessionId);
+        
+        // Then
+        assertNotNull(result);
+        assertTrue(result.getContent().contains("Good"));
+        assertTrue(result.getContent().contains("sunshine day"));
+        assertTrue(result.getContent().contains("💡 Looks like your payment is overdue"));
+        verify(sessionManager).markGreetingSent(sessionId);
+        verify(sessionManager).updateSessionState(sessionId, ConversationState.INTENT_PREDICTION);
+    }
+    
+    @Test
+    void processMessage_EndToEndScenarioFlow_OverduePayment() {
+        // Given - Complete flow test: greeting → prediction response → intent handling
+        String sessionId = "session_e2e_overdue";
+        
+        User overdueUser = new User(
+            "user_overdue",
+            "****-****-****-4321",
+            new BigDecimal("120000.00"),
+            new BigDecimal("150000.00"),
+            LocalDate.of(2025, 9, 1),
+            LocalDate.of(2025, 8, 1),
+            User.PaymentStatus.OVERDUE
+        );
+        
+        SessionContext context = new SessionContext(
+            sessionId,
+            ConversationState.GREETING,
+            overdueUser,
+            null,
+            java.time.LocalDateTime.now(),
+            0,
+            false
+        );
+        
+        Intent greetingIntent = new Intent(Intent.IntentName.GREETING, 0.9f, null, List.of("hello"), "Hello");
+        Intent prediction = new Intent(
+            Intent.IntentName.PAYMENT_INQUIRY,
+            0.9f,
+            java.util.Map.of("suggestion", "overdue_payment"),
+            List.of("overdue", "payment"),
+            "Looks like your payment is overdue. Would you like to check your current outstanding balance?"
+        );
+        
+        when(sessionManager.getSessionContext(sessionId)).thenReturn(context);
+        doNothing().when(sessionManager).incrementMessageCount(sessionId);
+        when(intentDetectionService.detectIntent("Hello")).thenReturn(greetingIntent);
+        when(weatherService.getCurrentWeather()).thenReturn(testWeatherContext);
+        when(weatherService.getGreetingWeatherText(any())).thenReturn("on a sunshine day");
+        when(intentDetectionService.predictIntent(overdueUser)).thenReturn(List.of(prediction));
+        
+        // When - User says hello
+        ChatMessage greetingResponse = conversationService.processMessage("Hello", sessionId);
+        
+        // Then - Should get greeting with prediction
+        assertNotNull(greetingResponse);
+        assertTrue(greetingResponse.getContent().contains("Good"));
+        assertTrue(greetingResponse.getContent().contains("💡 Looks like your payment is overdue"));
+        
+        verify(sessionManager).markGreetingSent(sessionId);
+        verify(sessionManager).updateSessionState(sessionId, ConversationState.INTENT_PREDICTION);
+    }
 }

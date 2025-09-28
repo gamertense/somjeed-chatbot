@@ -42,10 +42,14 @@ public class MockDataServiceTest {
         var allUsers = mockDataService.getAllUsers();
         
         // Then
-        assertEquals(3, allUsers.size());
+        assertEquals(6, allUsers.size()); // Updated to include 3 scenario users
         assertTrue(allUsers.stream().anyMatch(u -> "user123".equals(u.getUserId())));
         assertTrue(allUsers.stream().anyMatch(u -> "user456".equals(u.getUserId())));
         assertTrue(allUsers.stream().anyMatch(u -> "user789".equals(u.getUserId())));
+        // Story 1.3 scenario users
+        assertTrue(allUsers.stream().anyMatch(u -> "user_overdue".equals(u.getUserId())));
+        assertTrue(allUsers.stream().anyMatch(u -> "user_recent_payment".equals(u.getUserId())));
+        assertTrue(allUsers.stream().anyMatch(u -> "user_duplicate_txn".equals(u.getUserId())));
     }
     
     @Test
@@ -102,9 +106,71 @@ public class MockDataServiceTest {
         List<Transaction> allTransactions = mockDataService.getAllTransactions();
         
         // Then
-        assertEquals(8, allTransactions.size()); // 3 + 3 + 2 transactions
+        assertEquals(17, allTransactions.size()); // 3 + 3 + 2 + 3 + 3 + 3 transactions
         assertTrue(allTransactions.stream().anyMatch(t -> "user123".equals(t.getUserId())));
         assertTrue(allTransactions.stream().anyMatch(t -> "user456".equals(t.getUserId())));
         assertTrue(allTransactions.stream().anyMatch(t -> "user789".equals(t.getUserId())));
+        // Story 1.3 scenario users
+        assertTrue(allTransactions.stream().anyMatch(t -> "user_overdue".equals(t.getUserId())));
+        assertTrue(allTransactions.stream().anyMatch(t -> "user_recent_payment".equals(t.getUserId())));
+        assertTrue(allTransactions.stream().anyMatch(t -> "user_duplicate_txn".equals(t.getUserId())));
+    }
+    
+    // Story 1.3 Tests
+    
+    @Test
+    public void testGetUserScenario() {
+        // When & Then
+        assertEquals("OVERDUE_PAYMENT", mockDataService.getUserScenario("user_overdue"));
+        assertEquals("RECENT_PAYMENT", mockDataService.getUserScenario("user_recent_payment"));
+        assertEquals("DUPLICATE_TRANSACTION", mockDataService.getUserScenario("user_duplicate_txn"));
+        
+        // Regular users should not have scenario types
+        assertNull(mockDataService.getUserScenario("user123"));
+        assertNull(mockDataService.getUserScenario("user456"));
+        assertNull(mockDataService.getUserScenario("user789"));
+        assertNull(mockDataService.getUserScenario("nonexistent"));
+    }
+    
+    @Test
+    public void testScenarioUserData_OverduePayment() {
+        // When
+        User overdueUser = mockDataService.getUserById("user_overdue");
+        
+        // Then
+        assertNotNull(overdueUser);
+        assertEquals("user_overdue", overdueUser.getUserId());
+        assertEquals(new BigDecimal("120000.00"), overdueUser.getCurrentBalance());
+        assertEquals(User.PaymentStatus.OVERDUE, overdueUser.getPaymentStatus());
+        assertNotNull(overdueUser.getDueDate());
+    }
+    
+    @Test
+    public void testScenarioUserData_RecentPayment() {
+        // When
+        User recentPaymentUser = mockDataService.getUserById("user_recent_payment");
+        
+        // Then
+        assertNotNull(recentPaymentUser);
+        assertEquals("user_recent_payment", recentPaymentUser.getUserId());
+        assertEquals(User.PaymentStatus.CURRENT, recentPaymentUser.getPaymentStatus());
+        // Payment received today
+        assertEquals(java.time.LocalDate.now(), recentPaymentUser.getLastPaymentDate());
+    }
+    
+    @Test
+    public void testScenarioUserData_DuplicateTransaction() {
+        // When
+        User duplicateUser = mockDataService.getUserById("user_duplicate_txn");
+        List<Transaction> transactions = mockDataService.getTransactionsByUserId("user_duplicate_txn");
+        
+        // Then
+        assertNotNull(duplicateUser);
+        assertEquals("user_duplicate_txn", duplicateUser.getUserId());
+        assertEquals(User.PaymentStatus.CURRENT, duplicateUser.getPaymentStatus());
+        
+        // Should have at least 2 transactions with same amount for duplicate detection
+        assertEquals(3, transactions.size());
+        assertTrue(transactions.stream().anyMatch(t -> t.getAmount().equals(new BigDecimal("2890.00"))));
     }
 }
