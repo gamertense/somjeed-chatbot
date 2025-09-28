@@ -1,8 +1,10 @@
 package com.chatbot.demo.controller;
 
 import com.chatbot.demo.dto.ChatRequest;
+import com.chatbot.demo.model.ChatMessage;
 import com.chatbot.demo.model.User;
 import com.chatbot.demo.model.WeatherContext;
+import com.chatbot.demo.service.ConversationService;
 import com.chatbot.demo.service.MockDataService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -34,6 +38,9 @@ public class ChatControllerTest {
     private ObjectMapper objectMapper;
     
     @MockBean
+    private ConversationService conversationService;
+    
+    @MockBean
     private MockDataService mockDataService;
     
     @Test
@@ -41,28 +48,26 @@ public class ChatControllerTest {
         // Given
         ChatRequest request = new ChatRequest("Hello", null, "user123");
         
-        // Mock the weather context
-        WeatherContext weatherContext = new WeatherContext(
-            WeatherContext.WeatherCondition.SUNNY, 24, "Sunny day", LocalDateTime.now()
+        // Mock the conversation service response
+        ChatMessage mockChatMessage = new ChatMessage(
+            "msg123",
+            "session123",
+            ChatMessage.MessageSender.BOT,
+            "Good morning! Welcome to SOMJEED Credit Card services. How can I assist you today?",
+            LocalDateTime.now(),
+            ChatMessage.MessageType.TEXT
         );
-        when(mockDataService.getCurrentWeatherContext()).thenReturn(weatherContext);
         
-        // Mock the user data
-        User user = new User(
-            "user123", "****-****-****-1234", 
-            new BigDecimal("1250.00"), new BigDecimal("5000.00"),
-            LocalDate.of(2025, 10, 15), LocalDate.of(2025, 9, 15),
-            User.PaymentStatus.CURRENT
-        );
-        when(mockDataService.getUserById("user123")).thenReturn(user);
+        when(conversationService.processMessage(eq("Hello"), anyString()))
+            .thenReturn(mockChatMessage);
         
         // When & Then
         mockMvc.perform(post("/api/v1/chat")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.sessionId").isNotEmpty())
-            .andExpect(jsonPath("$.botMessage").isNotEmpty())
+            .andExpect(jsonPath("$.sessionId").value("session123"))
+            .andExpect(jsonPath("$.botMessage").value("Good morning! Welcome to SOMJEED Credit Card services. How can I assist you today?"))
             .andExpect(jsonPath("$.messageType").value("GREETING"))
             .andExpect(jsonPath("$.isSessionComplete").value(false))
             .andExpect(jsonPath("$.timestamp").isNotEmpty());
